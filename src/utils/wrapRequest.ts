@@ -1,17 +1,21 @@
 import { Cache } from "transitory";
 
-export const wrapRequest = <
-  R,
-  Args extends any[],
-  T extends (...args: Args) => Promise<R>
->(
-  fn: T,
-  cache?: Cache<string, R>
+interface WrapRequestParams<T extends (...args: any[]) => Promise<any>> {
+  fn: T;
+  cache?: Cache<string, Awaited<ReturnType<T>>>;
+  createKee?: (...args: Parameters<T>) => string;
+}
+
+export const wrapRequest = <T extends (...args: any[]) => Promise<any>>(
+  params: WrapRequestParams<T>
 ): T => {
+  const { fn, cache, createKee } = params;
+
+  type R = Awaited<ReturnType<T>>;
   const promiseMap = new Map<string, Promise<R>>();
 
-  const request = async (...args: Args) => {
-    const kee = JSON.stringify(args);
+  const request = async (...args: Parameters<T>) => {
+    const kee = createKee ? createKee(...args) : JSON.stringify(args);
 
     const resultFromCache = cache?.getIfPresent(kee);
 
