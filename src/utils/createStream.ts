@@ -40,13 +40,19 @@ export const createStream = <T>(params: Params<T>) => {
 
   let isNotInitialPoll = false;
 
+  let current = initial;
+
   const poll$ = defer(() => {
     log("poll$");
 
     if (!isNotInitialPoll) {
       log({ isNotInitialPoll });
       isNotInitialPoll = true;
-      return of(initial);
+      return of(current);
+    }
+
+    if (isComplete1) {
+      return of(current);
     }
 
     return defer(poll);
@@ -56,6 +62,8 @@ export const createStream = <T>(params: Params<T>) => {
   const result$ = new BehaviorSubject(initial);
 
   let mustCheck = false;
+
+  let isComplete1 = false;
 
   data$
     .pipe(
@@ -90,14 +98,36 @@ export const createStream = <T>(params: Params<T>) => {
     )
     .subscribe(data$);
 
-  data$.pipe(distinctUntilChanged(compare)).subscribe(result$);
+  data$
+    .pipe(
+      distinctUntilChanged((prev, current) => {
+        if (isComplete1) {
+          return true;
+        }
+
+        if (!compare) {
+          return prev === current;
+        }
+
+        return compare(prev, current);
+      })
+    )
+    .subscribe(result$);
 
   data$.subscribe({
     next: (val) => {
       log("got val", `val`);
-      if (isComplete(val)) {
-        data$.complete();
+
+      if (isComplete1) {
+        return;
       }
+
+      if (isComplete(val)) {
+        isComplete1 = true;
+        Promise.resolve().then(() => data$.complete());
+      }
+
+      current = val;
     },
     complete: () => {
       log("COMPLETE");
@@ -113,14 +143,14 @@ export const createStream = <T>(params: Params<T>) => {
       }
 
       mustCheck = true;
-      data$.next(data$.getValue());
+      data$.next(current);
     },
   };
 
   const sub = (handler: (val: T) => void) => {
     log("SUBSCRIBE");
     if (data$.isStopped) {
-      handler(data$.getValue());
+      handler(current);
       return null;
     }
 
